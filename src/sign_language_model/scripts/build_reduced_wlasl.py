@@ -128,7 +128,7 @@ def main():
     samples_path = raw_root / "samples.json"
     video_out = out_root / "videos"
 
-    if out_root.exists() and args.overwrite:
+    if out_root.exists() and args.overwrite and not args.dry_run:
         shutil.rmtree(out_root)
 
     video_out.mkdir(parents=True, exist_ok=True)
@@ -193,6 +193,8 @@ def main():
             num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            duration = round(num_frames / fps if fps > 0 else 0, 2)  # round off
+
             cap.release()
 
             rows.append(
@@ -200,7 +202,8 @@ def main():
                     "filepath": str(out_video.relative_to(out_root).as_posix()),
                     "gloss": gloss,
                     "fps": args.target_fps or fps,
-                    "num_frames": num_frames,
+                    "duration": duration,
+                    "num_frames": int(num_frames),
                     "video_width": width,
                     "video_height": height,
                     "bbox_x": row["bbox_x"],
