@@ -10,7 +10,8 @@
 */__pycache__
 */code/I3D/archived/
 */code/TGCN/archived/
-data/
+data/*
+!data/README.md
 *.pt
 
 *.zip
