@@ -333,9 +333,12 @@ The features were extracted using the following command:
 ```
 """
 
-    with open(readme_path, "w") as f:
+    with open(readme_path, "w", encoding="utf-8") as f:
         f.write(readme_text)
     print(f"README saved to: {readme_path.as_posix()}")
+
+    # Delete tmp dir
+    shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
