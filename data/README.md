@@ -50,6 +50,23 @@ uv run ./src/sign_language_model/scripts/extract_holistic_keypoints.py \
     --output-root ./data/wlasl_reduced/features_kps \
     --crop-to-bbox \
     --num-workers 4
+
+# Combine features into tensor dataset
+# KPS only
+uv run python .\src\sign_language_model\scripts\build_tensor_dataset.py --dataset-root .\data\wlasl_reduced --features-kps features_kps --output-dir tensors/kps --overwrite
+
+# RGB only
+uv run python .\src\sign_language_model\scripts\build_tensor_dataset.py --dataset-root .\data\wlasl_reduced --features-rgb features_i3d_rgb --output-dir tensors/rgb --overwrite
+
+# RGB + Flow only
+uv run python .\src\sign_language_model\scripts\build_tensor_dataset.py --dataset-root .\data\wlasl_reduced --features-rgb-flow features_i3d_rgb_flow --output-dir tensors/rgb_flow --overwrite
+
+# KPS + RGB
+uv run python .\src\sign_language_model\scripts\build_tensor_dataset.py --dataset-root .\data\wlasl_reduced --features-kps features_kps --features-rgb features_i3d_rgb --output-dir tensors/kps_rgb --overwrite
+
+# KPS + RGB + Flow
+uv run python .\src\sign_language_model\scripts\build_tensor_dataset.py --dataset-root .\data\wlasl_reduced --features-kps features_kps --features-rgb-flow features_i3d_rgb_flow --output-dir tensors/kps_rgb_flow --overwrite
+
 ```
 
 ## Dataset Structure
@@ -57,7 +74,7 @@ uv run ./src/sign_language_model/scripts/extract_holistic_keypoints.py \
 ```bash
 data/
 ├── WLASL/
-│   ├── .cache/                 # Hugging Face cache
+│   ├── .cache/                      # Hugging Face dataset cache
 │   ├── data/
 │   │   ├── data_0/
 │   │   │   ├── *.mp4
@@ -71,46 +88,82 @@ data/
 │   ├── frames.json
 │   ├── samples.json
 │   └── README.md
+│
 └── wlasl_reduced/
-    ├── videos/
+    ├── videos/                      # Reduced video dataset (by gloss)
     │   ├── accident/
-    │   │   ├── *.mp4
-    │   │   └── ...
-    │   ├── bathroom/
     │   │   ├── *.mp4
     │   │   └── ...
     │   └── ...
-    ├── features_i3d_rgb_flow/ # I3D features rgb + flow (raft)
+    │
+    ├── features_i3d_rgb_flow/        # I3D features (RGB + Flow)
     │   ├── accident/
-    │   │   ├── *.npy  # shape: (2, C) where 2 repreesents flow & rgb, C is feature dim (e.g., 1024)
+    │   │   ├── *.npy                # shape: (2, 1024) → [rgb, flow]
     │   │   └── ...
-    │   ├── bathroom/
-    │   │   ├── *.npy
-    │   │   └── ...
-    │   ├── ...
     │   └── README.md
-    ├── features_i3d_rgb/ # I3D features with rgb only
+    │
+    ├── features_i3d_rgb/             # I3D features (RGB only)
     │   ├── accident/
-    │   │   ├── *.npy  # shape: (C,) where C is feature dim (e.g., 1024)
+    │   │   ├── *.npy                # shape: (1024,)
     │   │   └── ...
-    │   ├── bathroom/
-    │   │   ├── *.npy
-    │   │   └── ...
-    │   ├── ...
     │   └── README.md
-    ├── features_kps/ # Keypoint features
+    │
+    ├── features_kps/                 # MediaPipe keypoint features
     │   ├── accident/
-    │   │   ├── *.npy  # shape: (C, T, V) = (3, T, 75), where T is number of frames, V is number of keypoints, C is coordinate dims (x,y,z)
+    │   │   ├── *.npy                # shape: (3, T, 75) = (C, T, V)
     │   │   └── ...
-    │   ├── bathroom/
-    │   │   ├── *.npy
-    │   │   └── ...
-    │   ├── ...
     │   └── README.md
-    ├── splits/
+    │
+    ├── splits/                       # Dataset splits
     │   ├── train.csv
     │   └── test.csv
-    ├── gloss_map.json
-    ├── metadata.csv
+    │
+    ├── tensors/                      # Preloaded tensor datasets (.npz)
+    │   ├── kps/
+    │   │   ├── train.npz
+    │   │   └── test.npz
+    │   │   # Access:
+    │   │   # data = np.load("train.npz")
+    │   │   # X_kps = data["X_kps"]   # (N, 3, T, 75)
+    │   │   # y     = data["y"]       # (N,)
+    │   │
+    │   ├── rgb/
+    │   │   ├── train.npz
+    │   │   └── test.npz
+    │   │   # Access:
+    │   │   # data = np.load("train.npz")
+    │   │   # X_rgb = data["X_rgb"]   # (N, 1024)
+    │   │   # y     = data["y"]
+    │   │
+    │   ├── rgb_flow/
+    │   │   ├── train.npz
+    │   │   └── test.npz
+    │   │   # Access:
+    │   │   # data = np.load("train.npz")
+    │   │   # X_rgb  = data["X_rgb"]  # (N, 1024)
+    │   │   # X_flow = data["X_flow"] # (N, 1024)
+    │   │   # y      = data["y"]
+    │   │
+    │   ├── kps_rgb/
+    │   │   ├── train.npz
+    │   │   └── test.npz
+    │   │   # Access:
+    │   │   # data = np.load("train.npz")
+    │   │   # X_kps = data["X_kps"]   # (N, 3, T, 75)
+    │   │   # X_rgb = data["X_rgb"]   # (N, 1024)
+    │   │   # y     = data["y"]
+    │   │
+    │   └── kps_rgb_flow/
+    │       ├── train.npz
+    │       └── test.npz
+    │       # Access:
+    │       # data = np.load("train.npz")
+    │       # X_kps  = data["X_kps"]  # (N, 3, T, 75)
+    │       # X_rgb  = data["X_rgb"]  # (N, 1024)
+    │       # X_flow = data["X_flow"] # (N, 1024)
+    │       # y      = data["y"]
+    │
+    ├── gloss_map.json                # gloss → class_id mapping
+    ├── metadata.csv                  # per-video metadata
     └── README.md
 ```
