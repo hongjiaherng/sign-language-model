@@ -12,11 +12,44 @@ uvx hf download Voxel51/WLASL --repo-type=dataset --local-dir=./data/WLASL
 Prepare the reduced WLASL dataset by running the script:
 
 ```bash
+# Build reduced WLASL dataset with selected glosses
 uv run ./src/sign_language_model/scripts/build_reduced_wlasl.py \
     --wlasl-root ./data/WLASL/ \
     --output-root ./data/wlasl_reduced \
     --glosses "before,cool,thin,go,drink,help,computer,cousin,who,bowling,trade,bed,accident,tall,thanksgiving,candy,short,pizza,man,no,wait,good,bad,son,like,doctor,now,find,you,thank you,please,hospital,bathroom,me,i" \
     --target-fps 24
+
+# Build train/test splits and extract features
+uv run ./src/sign_language_model/scripts/build_dataset_splits.py \
+    --dataset-root ./data/wlasl_reduced/ \
+    --test-size 0.15 \
+    --seed 42
+
+# Extract I3D features and Holistic keypoints
+# I3D RGB + Flow features
+uv run ./src/sign_language_model/scripts/extract_i3d_features.py \
+    --dataset-root ./data/wlasl_reduced/ \
+    --output-root ./data/wlasl_reduced/features_i3d_rgb_flow \
+    --crop-to-bbox \
+    --num-frames 32 \
+    --device cuda \
+    --streams rgb+flow
+
+# I3D RGB only features
+uv run ./src/sign_language_model/scripts/extract_i3d_features.py \
+    --dataset-root ./data/wlasl_reduced/ \
+    --output-root ./data/wlasl_reduced/features_i3d_rgb \
+    --crop-to-bbox \
+    --num-frames 32 \
+    --device cuda \
+    --streams rgb
+
+# Holistic Keypoint features
+uv run ./src/sign_language_model/scripts/extract_holistic_keypoints.py \
+    --dataset-root ./data/wlasl_reduced/ \
+    --output-root ./data/wlasl_reduced/features_kps \
+    --crop-to-bbox \
+    --num-workers 4
 ```
 
 ## Dataset Structure
