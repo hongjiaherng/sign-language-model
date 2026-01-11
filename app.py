@@ -1,11 +1,4 @@
 import gradio as gr
-from text_processor import stream_text_output
-
-# Helper functions
-def stream_text_output(input_text):
-    for char in input_text:
-        yield char
-        time.sleep(0.05)  # simulate model latency
 
 # UI Interface
 with gr.Blocks() as app_interface:
