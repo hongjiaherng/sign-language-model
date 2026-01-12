@@ -17,7 +17,7 @@ from streamlit_webrtc import webrtc_streamer, WebRtcMode
 
 
 # =========================================================
-# 1. MODEL ARCHITECTURE (Exact Copy from Training)
+# 1. MODEL ARCHITECTURE
 # =========================================================
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=32):
@@ -80,14 +80,8 @@ class TransformerEncoderKeypoints(nn.Module):
 class Preprocessor:
     def __init__(self):
         self.mp_holistic = mp.solutions.holistic
-        # We initialize instances inside the thread, but this class holds utility methods
-        pass
 
     def extract_xy(self, results):
-        """Extracts (75, 3) keypoints: Pose(33) + LH(21) + RH(21)"""
-        # Return None if no hands are detected (Optional: strict filtering)
-        # For better UX, we can return pose even if hands are missing,
-        # but for WLASL, hands are critical.
         if results.left_hand_landmarks is None and results.right_hand_landmarks is None:
             return None
 
@@ -105,8 +99,7 @@ class Preprocessor:
         return np.concatenate([pose, lh, rh], axis=0)
 
     def sample_and_pad(self, frames, target_frames=32):
-        """Resamples or pads frames to target length."""
-        frames = np.array(frames)  # (T, 75, 3)
+        frames = np.array(frames)
         num_frames = frames.shape[0]
 
         if num_frames >= target_frames:
@@ -117,60 +110,66 @@ class Preprocessor:
             pad = np.repeat(last_frame, target_frames - num_frames, axis=0)
             output = np.concatenate([frames, pad], axis=0)
 
-        output = output.transpose(2, 0, 1)  # (3, 32, 75)
-        tensor = torch.FloatTensor(output).unsqueeze(0)  # (1, 3, 32, 75)
+        output = output.transpose(2, 0, 1)
+        tensor = torch.FloatTensor(output).unsqueeze(0)
         return tensor
 
 
 # =========================================================
-# 3. OPTIMIZED VIDEO PROCESSOR (For WebRTC)
+# 3. VIDEO PROCESSOR (WebRTC)
 # =========================================================
 class VideoProcessor:
     def __init__(self):
-        # Attributes set via factory
         self.model = None
         self.device = None
         self.labels = None
         self.preprocessor = None
         self.threshold = 0.6
-        self.frame_skip = 3
+        self.frame_skip = 2  # Reduced skip for smoother updates
 
-        # Components
         self.mp_holistic = mp.solutions.holistic
         self.holistic = self.mp_holistic.Holistic(
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5,
-            model_complexity=0,  # Speed optimized
+            model_complexity=0,
         )
 
-        # State
         self.sequence = deque(maxlen=32)
-        self.prediction_history = deque(maxlen=5)  # For voting
+        # Reduced history to 3 to make it more responsive
+        self.prediction_history = deque(maxlen=3)
         self.frame_counter = 0
         self.current_prediction = "Waiting..."
         self.current_conf = 0.0
 
-        # Thread-safe Communication
         self.result_queue = queue.Queue()
 
     def draw_hud(self, image, label, conf):
         h, w, _ = image.shape
         # Top Bar
-        cv2.rectangle(image, (0, 0), (w, 60), (0, 0, 0), -1)
+        cv2.rectangle(image, (0, 0), (w, 50), (0, 0, 0), -1)
         # Confidence Line
-        bar_width = int(w * conf)
-        cv2.rectangle(image, (0, 55), (bar_width, 60), (0, 255, 0), -1)
+        if conf > 0:
+            bar_width = int(w * conf)
+            cv2.rectangle(image, (0, 45), (bar_width, 50), (0, 255, 0), -1)
+
         # Text
-        color = (0, 255, 0) if conf > self.threshold else (150, 150, 150)
-        text = f"{label} ({conf * 100:.0f}%)"
-        cv2.putText(image, text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        color = (0, 255, 0) if conf > self.threshold else (200, 200, 200)
+
+        # Clean text logic: If waiting, just show "Waiting..."
+        if label == "Waiting..." or conf < self.threshold:
+            text = "Waiting..."
+            color = (200, 200, 200)
+        else:
+            text = f"{label} ({conf * 100:.0f}%)"
+
+        cv2.putText(image, text, (15, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
 
     def recv(self, frame):
         image = frame.to_ndarray(format="bgr24")
         image = cv2.flip(image, 1)
         self.frame_counter += 1
 
-        # 1. MediaPipe (Run every frame for smooth drawing)
+        # MediaPipe
         image.flags.writeable = False
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = self.holistic.process(image_rgb)
@@ -184,13 +183,13 @@ class VideoProcessor:
             image, results.right_hand_landmarks, mp.solutions.holistic.HAND_CONNECTIONS
         )
 
-        # 2. Extract & Buffer
+        # Buffer
         if self.preprocessor:
             kp = self.preprocessor.extract_xy(results)
             if kp is not None:
                 self.sequence.append(kp)
 
-        # 3. Inference (Every N frames)
+        # Inference
         if (
             self.model
             and len(self.sequence) == 32
@@ -208,18 +207,16 @@ class VideoProcessor:
                     this_conf = conf.item()
                     this_label = self.labels[pred_idx.item()]
 
-                    # Voting System
+                    # Direct Update Logic (Simpler than voting to fix "..." bug)
                     if this_conf > self.threshold:
-                        self.prediction_history.append(this_label)
+                        self.current_prediction = this_label
+                        self.current_conf = this_conf
                     else:
-                        self.prediction_history.append("...")
-
-                    most_common = Counter(self.prediction_history).most_common(1)
-                    if most_common:
-                        final_label, count = most_common[0]
-                        if count >= 3:  # Majority consensus
-                            self.current_prediction = final_label
-                            self.current_conf = this_conf
+                        # If low confidence, slowly decay to waiting
+                        # This prevents flickering on one bad frame
+                        self.current_conf = this_conf
+                        if this_conf < 0.3:
+                            self.current_prediction = "Waiting..."
 
                     # Send to UI
                     if not self.result_queue.full():
@@ -231,27 +228,21 @@ class VideoProcessor:
                             }
                         )
             except Exception as e:
-                print(f"Inference Error: {e}")
+                pass
 
-        # 4. Draw HUD
         self.draw_hud(image, self.current_prediction, self.current_conf)
-
         return av.VideoFrame.from_ndarray(image, format="bgr24")
 
 
 # =========================================================
-# 4. RESOURCE LOADING
+# 4. LOAD RESOURCES
 # =========================================================
 @st.cache_resource
 def load_resources():
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # --- UPDATE PATHS HERE ---
-    # Ensure these point to your correct local files
     MODEL_PATH = "checkpoints/best_model_kps_transformer.pth"
     GLOSS_PATH = "data/wlasl_reduced/gloss_map.json"
 
-    # Load Labels (Convert JSON list/dict to {0: "book", 1: "drink"})
     try:
         with open(GLOSS_PATH, "r") as f:
             raw_glosses = json.load(f)
@@ -259,7 +250,6 @@ def load_resources():
         if isinstance(raw_glosses, list):
             labels = {i: gloss for i, gloss in enumerate(raw_glosses)}
         else:
-            # Sort dict by value if it's {"book": 0}
             sorted_pairs = sorted(raw_glosses.items(), key=lambda x: x[1])
             labels = (
                 {v: k for k, v in sorted_pairs}
@@ -270,123 +260,76 @@ def load_resources():
                 }
             )
 
-    except FileNotFoundError:
-        st.error(f"Gloss map not found at {GLOSS_PATH}")
+    except Exception:
         return None, None, None
 
-    # Load Model
     try:
         model = TransformerEncoderKeypoints(num_classes=len(labels))
         checkpoint = torch.load(MODEL_PATH, map_location=device)
         model.load_state_dict(checkpoint)
         model.to(device)
         model.eval()
-    except FileNotFoundError:
-        st.error(f"Model checkpoint not found at {MODEL_PATH}")
+    except Exception:
         return None, None, None
 
     return model, labels, device
 
 
 # =========================================================
-# 5. MAIN APP
+# 5. MAIN APP UI
 # =========================================================
 st.set_page_config(page_title="WLASL Sign Recognition", layout="wide")
+
+# Custom CSS for Big Text
+st.markdown(
+    """
+<style>
+    .big-label {
+        font-size: 24px !important;
+        color: #555;
+        margin-bottom: -10px;
+    }
+    .big-pred {
+        font-size: 48px !important;
+        font-weight: bold;
+        color: #1f77b4;
+        margin-top: 0px;
+    }
+    .big-conf {
+        font-size: 20px !important;
+        color: #2ca02c;
+        font-weight: bold;
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
 st.title("🤟 WLASL-35 Sign Language Recognizer")
 
-# Load Resources
+# Load
 model, labels, device = load_resources()
 preprocessor = Preprocessor()
-
 if not model:
     st.stop()
 
-# Sidebar
-st.sidebar.title("Settings")
-mode = st.sidebar.radio("Mode", ["Video Upload", "Live Webcam"])
-threshold = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.6)
+# --- TOP SETTINGS (No Sidebar) ---
+col_set1, col_set2, col_set3 = st.columns([1, 1, 2])
+with col_set1:
+    mode = st.radio("Input Mode", ["Video Upload", "Live Webcam"])
+with col_set2:
+    threshold = st.slider("Sensitivity", 0.0, 1.0, 0.6)
 
-# --- VIDEO UPLOAD MODE ---
-if mode == "Video Upload":
-    st.subheader("Video File Analysis")
-    uploaded_file = st.file_uploader("Upload a video", type=["mp4", "avi", "mov"])
+st.markdown("---")
 
-    if uploaded_file:
-        tfile = tempfile.NamedTemporaryFile(delete=False)
-        tfile.write(uploaded_file.read())
-        cap = cv2.VideoCapture(tfile.name)
+# --- LIVE WEBCAM ---
+if mode == "Live Webcam":
+    # Columns: Left is Video (Small), Right is Stats (Big Text)
+    # Ratio [1, 1] makes video take 50% width, effectively making it smaller
+    col_cam, col_stats = st.columns([1, 1])
 
-        st_video = st.empty()
-        progress_bar = st.progress(0)
+    with col_cam:
 
-        # 1. Process whole video
-        valid_frames = []
-        original_frames = []
-
-        # MediaPipe instance for file processing
-        holistic = mp.solutions.holistic.Holistic(static_image_mode=False)
-
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        curr = 0
-
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            original_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-
-            # Extract
-            frame.flags.writeable = False
-            results = holistic.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            kp = preprocessor.extract_xy(results)
-            if kp is not None:
-                valid_frames.append(kp)
-
-            curr += 1
-            if total_frames > 0:
-                progress_bar.progress(min(curr / total_frames, 1.0))
-
-        holistic.close()
-        cap.release()
-
-        # 2. Inference
-        if len(valid_frames) > 0:
-            tensor_in = preprocessor.sample_and_pad(valid_frames).to(device)
-            with torch.no_grad():
-                outputs = model(tensor_in)
-                probs = torch.softmax(outputs, dim=1)
-                conf, pred_idx = torch.max(probs, 1)
-
-            pred_gloss = labels[pred_idx.item()]
-            pred_conf = conf.item()
-
-            st.success(f"Prediction: **{pred_gloss}** ({pred_conf * 100:.1f}%)")
-
-            # 3. Playback with Overlay
-            # Simple replay
-            for frame in original_frames:
-                frame = cv2.resize(frame, (640, 480))
-                cv2.putText(
-                    frame,
-                    f"{pred_gloss} ({pred_conf * 100:.0f}%)",
-                    (10, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    (0, 255, 0),
-                    2,
-                )
-                st_video.image(frame)
-        else:
-            st.error("No hands detected in video.")
-
-# --- LIVE WEBCAM MODE ---
-elif mode == "Live Webcam":
-    st.subheader("Live Webcam Inference")
-    col1, col2 = st.columns([3, 1])
-
-    with col1:
-        # Factory to inject loaded model into WebRTC processor
         def video_frame_callback_factory():
             processor = VideoProcessor()
             processor.model = model
@@ -407,21 +350,38 @@ elif mode == "Live Webcam":
             async_processing=True,
         )
 
-    with col2:
-        st.markdown("### Live Stats")
-        ph_label = st.empty()
-        ph_conf = st.empty()
+    with col_stats:
+        # Placeholders for Big Text
+        ph_label_container = st.empty()
+        ph_conf_container = st.empty()
+        st.markdown("<br>", unsafe_allow_html=True)  # Spacer
+        st.markdown("#### Top Predictions")
         ph_chart = st.empty()
 
-    # Queue Polling Loop (Does not rerun script)
+    # Queue Loop
     if ctx.state.playing:
         while True:
             try:
                 if ctx.video_processor:
                     result = ctx.video_processor.result_queue.get(timeout=1.0)
-                    ph_label.metric("Prediction", result["label"])
-                    ph_conf.progress(
-                        result["conf"], text=f"Confidence: {result['conf'] * 100:.0f}%"
+
+                    label = result["label"]
+                    conf = result["conf"]
+
+                    # Custom HTML for Big Text
+                    ph_label_container.markdown(
+                        f"""
+                        <div class="big-label">Detected Sign:</div>
+                        <div class="big-pred">{label}</div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
+
+                    ph_conf_container.markdown(
+                        f"""
+                        <div class="big-conf">Confidence: {conf * 100:.1f}%</div>
+                    """,
+                        unsafe_allow_html=True,
                     )
 
                     # Chart
@@ -429,8 +389,73 @@ elif mode == "Live Webcam":
                     top5 = probs.argsort()[-5:][::-1]
                     chart_data = {labels[i]: probs[i] for i in top5}
                     ph_chart.bar_chart(chart_data)
+
             except queue.Empty:
                 pass
             except Exception:
                 break
             time.sleep(0.05)
+
+# --- VIDEO UPLOAD ---
+elif mode == "Video Upload":
+    uploaded_file = st.file_uploader("Upload a video", type=["mp4", "avi", "mov"])
+    if uploaded_file:
+        tfile = tempfile.NamedTemporaryFile(delete=False)
+        tfile.write(uploaded_file.read())
+        cap = cv2.VideoCapture(tfile.name)
+
+        st_video = st.empty()
+        progress_bar = st.progress(0)
+
+        valid_frames = []
+        original_frames = []
+
+        holistic = mp.solutions.holistic.Holistic(static_image_mode=False)
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        curr = 0
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            original_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+            frame.flags.writeable = False
+            results = holistic.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            kp = preprocessor.extract_xy(results)
+            if kp is not None:
+                valid_frames.append(kp)
+
+            curr += 1
+            if total > 0:
+                progress_bar.progress(min(curr / total, 1.0))
+
+        holistic.close()
+        cap.release()
+
+        if len(valid_frames) > 0:
+            tensor_in = preprocessor.sample_and_pad(valid_frames).to(device)
+            with torch.no_grad():
+                outputs = model(tensor_in)
+                probs = torch.softmax(outputs, dim=1)
+                conf, pred_idx = torch.max(probs, 1)
+
+            p_gloss = labels[pred_idx.item()]
+            p_conf = conf.item()
+
+            st.success(f"Prediction: **{p_gloss}** ({p_conf * 100:.1f}%)")
+
+            for frame in original_frames:
+                frame = cv2.resize(frame, (640, 480))
+                cv2.putText(
+                    frame,
+                    f"{p_gloss} ({p_conf * 100:.0f}%)",
+                    (10, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1,
+                    (0, 255, 0),
+                    2,
+                )
+                st_video.image(frame)
+        else:
+            st.error("No hands detected.")
