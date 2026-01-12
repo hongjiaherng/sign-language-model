@@ -135,10 +135,6 @@ numpy==1.26.4
     #   streamlit
     #   tensorboard
     #   torchvision
-opencv-contrib-python==4.11.0.86
-    # via mediapipe
-opencv-python==4.11.0.86
-    # via sign-language-model (pyproject.toml)
 opencv-python-headless==4.11.0.86
     # via sign-language-model (pyproject.toml)
 opt-einsum==3.4.0
