@@ -4,6 +4,10 @@ A computer vision project to recognize 35 American Sign Language (ASL) glosses o
 
 This project demonstrates that for small-scale datasets (~400 samples), **geometric feature extraction (Keypoints)** significantly outperforms raw pixel-based methods (RGB/Optical Flow) due to the Curse of Dimensionality & small number of samples.
 
+Preprocessed dataset is available here: https://huggingface.co/datasets/hongjiaherng/wlasl_reduced/tree/main.
+
+Please refer to [data/README.md](data/README.md) for more details.
+
 ## Features
 
 - Real-time gesture detection

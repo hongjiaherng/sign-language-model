@@ -9,7 +9,7 @@ Since the original script to download the dataset has too many broken links, we 
 uvx hf download Voxel51/WLASL --repo-type=dataset --local-dir=./data/WLASL
 ```
 
-Prepare the reduced WLASL dataset by running the script:
+Prepare the reduced WLASL dataset by running the following script or download from [here](https://huggingface.co/datasets/jherng/wlasl_reduced).
 
 ```bash
 # Build reduced WLASL dataset with selected glosses
