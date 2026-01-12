@@ -1,46 +1,38 @@
 # 🤟 Sign Language Real-Time Translator
 
-A group project (5 members) aimed at creating a real-time sign language translation model, complete with an interactive Gradio interface.
+A computer vision project to recognize 35 American Sign Language (ASL) glosses on a reduced set of WLASL dataset.
 
-# 🚀 Overview
+This project demonstrates that for small-scale datasets (~400 samples), **geometric feature extraction (Keypoints)** significantly outperforms raw pixel-based methods (RGB/Optical Flow) due to the Curse of Dimensionality & small number of samples.
 
-This project focuses on building a machine learning pipeline capable of translating sign language gestures into text in real time.
-It includes:
-
-- 📷 Real-time video input
-- 🤖 A trained sign-language recognition model
-- 🖥️ A Gradio-based web interface
-- 🔁 Smooth end-to-end inference loop
-
-# Features
+## Features
 
 - Real-time gesture detection
-- User-friendly Gradio UI
+- User-friendly Streamlit UI
 - Localhost interface for easy testing
 
-# How to run
+## How to run
 
-1. Install required dependencies, look for requirement.txt
+1. Install required dependencies
 
-```
-pip install --upgrade gradio
+```bash
+uv sync --dev --extra cu130
+# Or
+# uv sync --dev --extra cpu
 ```
 
 1. Run the app
 
-```
-python app.py
+```bash
+uv run streamlit run app.py
 ```
 
-1. Finally, open in local browser: <http://localhost:7860>
-
-# 🧑‍🤝‍🧑 Contribution Guide
+## 🧑‍🤝‍🧑 Contribution Guide
 
 - Fork the repository
 - Create new feature branch
 - Commit and push to remote feature branch
 - Create Pull Request before merging into main branch
 
-# 🤝 Team Members
+## 🤝 Team Members
 
 Contributed by Jia Herng, Jasper, Zoe, Zen Yu, Zhi Yang
