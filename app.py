@@ -259,11 +259,103 @@ st.set_page_config(page_title="WLASL Sign Recognition", layout="wide")
 st.markdown(
     """
 <style>
-    .big-label { font-size: 20px !important; color: #666; margin-bottom: -5px; }
-    .big-pred { font-size: 42px !important; font-weight: bold; margin-top: 0px; }
-    .big-conf { font-size: 18px !important; font-weight: bold; }
+    /* Center align main content and ensure width */
+    .main .block-container {
+        max-width: 1400px;
+        padding-left: 3rem;
+        padding-right: 3rem;
+        padding-top: 2rem;
+    }
+    
+    /* Center title */
+    h1 {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    
+    /* Center columns container */
+    [data-testid="column"] {
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    /* Style classes */
+    .big-label { 
+        font-size: 20px !important; 
+        color: #666; 
+        margin-bottom: -5px; 
+        text-align: center;
+        width: 100%;
+    }
+    .big-pred { 
+        font-size: 42px !important; 
+        font-weight: bold; 
+        margin-top: 0px; 
+        text-align: center;
+        width: 100%;
+    }
+    .big-conf { 
+        font-size: 18px !important; 
+        font-weight: bold; 
+        text-align: center;
+        width: 100%;
+    }
     .color-green { color: #2ca02c; }
     .color-gray { color: #888888; }
+    
+    /* Center file uploader */
+    .stFileUploader {
+        text-align: center;
+        width: 100%;
+    }
+    
+    /* Center radio buttons */
+    .stRadio > div {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    /* Center sliders */
+    .stSlider {
+        text-align: center;
+        width: 100%;
+    }
+    
+    /* Ensure video containers are wide */
+    [data-testid="stWebRTC"] {
+        width: 100%;
+        max-width: 100%;
+    }
+    
+    /* Center buttons */
+    button {
+        margin: 0 auto;
+        display: block;
+    }
+    
+    /* Center images */
+    .stImage {
+        text-align: center;
+        margin: 0 auto;
+    }
+    
+    /* Center progress bars */
+    .stProgress {
+        width: 100%;
+    }
+    
+    /* Center charts */
+    [data-testid="stBarChart"] {
+        width: 100%;
+    }
+    
+    /* Ensure headings are centered */
+    h3, h4 {
+        text-align: center;
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -277,17 +369,19 @@ if not model:
     st.stop()
 
 # --- TOP SETTINGS ---
-col_set1, col_set2, col_set3 = st.columns([1, 1, 2])
+col_set1, col_set2, col_set3 = st.columns([1, 1, 1])
 with col_set1:
     mode = st.radio("Input Mode", ["Video Upload", "Live Webcam"])
 with col_set2:
     ui_threshold = st.slider("Success Threshold", 0.0, 1.0, 0.5)
+with col_set3:
+    st.empty()  # Spacer for centering
 
 st.markdown("---")
 
 # --- LIVE WEBCAM ---
 if mode == "Live Webcam":
-    col_cam, col_stats = st.columns([1, 1])
+    col_cam, col_stats = st.columns([1, 1], gap="large")
     with col_cam:
 
         def video_frame_callback_factory():
@@ -359,7 +453,7 @@ if mode == "Live Webcam":
 # --- VIDEO UPLOAD ---
 elif mode == "Video Upload":
     # 1. Layout Columns
-    col_video, col_results = st.columns([1, 1])
+    col_video, col_results = st.columns([1, 1], gap="large")
 
     with col_video:
         uploaded_file = st.file_uploader("Upload a video", type=["mp4", "avi", "mov"])
