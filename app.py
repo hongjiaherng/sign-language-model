@@ -124,8 +124,8 @@ class VideoProcessor:
         self.device = None
         self.labels = None
         self.preprocessor = None
-        self.threshold = 0.6
-        self.frame_skip = 2  # Reduced skip for smoother updates
+        self.threshold = 0.4  # Default internal threshold for display
+        self.frame_skip = 2
 
         self.mp_holistic = mp.solutions.holistic
         self.holistic = self.mp_holistic.Holistic(
@@ -135,8 +135,6 @@ class VideoProcessor:
         )
 
         self.sequence = deque(maxlen=32)
-        # Reduced history to 3 to make it more responsive
-        self.prediction_history = deque(maxlen=3)
         self.frame_counter = 0
         self.current_prediction = "Waiting..."
         self.current_conf = 0.0
@@ -153,15 +151,9 @@ class VideoProcessor:
             cv2.rectangle(image, (0, 45), (bar_width, 50), (0, 255, 0), -1)
 
         # Text
-        color = (0, 255, 0) if conf > self.threshold else (200, 200, 200)
-
-        # Clean text logic: If waiting, just show "Waiting..."
-        if label == "Waiting..." or conf < self.threshold:
-            text = "Waiting..."
-            color = (200, 200, 200)
-        else:
-            text = f"{label} ({conf * 100:.0f}%)"
-
+        # If very low confidence (<30%), gray out. Otherwise Green.
+        color = (0, 255, 0) if conf > 0.4 else (200, 200, 200)
+        text = f"{label} ({conf * 100:.0f}%)" if label != "Waiting..." else "Waiting..."
         cv2.putText(image, text, (15, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
 
     def recv(self, frame):
@@ -207,16 +199,15 @@ class VideoProcessor:
                     this_conf = conf.item()
                     this_label = self.labels[pred_idx.item()]
 
-                    # Direct Update Logic (Simpler than voting to fix "..." bug)
-                    if this_conf > self.threshold:
+                    self.current_conf = this_conf
+
+                    # --- FIXED LOGIC ---
+                    # Always show the prediction if it's reasonably possible (> 30%)
+                    # The UI Slider will determine if it's "Green" or "Gray", but we won't hide the text.
+                    if this_conf > 0.3:
                         self.current_prediction = this_label
-                        self.current_conf = this_conf
                     else:
-                        # If low confidence, slowly decay to waiting
-                        # This prevents flickering on one bad frame
-                        self.current_conf = this_conf
-                        if this_conf < 0.3:
-                            self.current_prediction = "Waiting..."
+                        self.current_prediction = "Waiting..."
 
                     # Send to UI
                     if not self.result_queue.full():
@@ -285,21 +276,22 @@ st.markdown(
     """
 <style>
     .big-label {
-        font-size: 24px !important;
-        color: #555;
-        margin-bottom: -10px;
+        font-size: 20px !important;
+        color: #666;
+        margin-bottom: -5px;
     }
     .big-pred {
-        font-size: 48px !important;
+        font-size: 42px !important;
         font-weight: bold;
-        color: #1f77b4;
         margin-top: 0px;
     }
     .big-conf {
-        font-size: 20px !important;
-        color: #2ca02c;
+        font-size: 18px !important;
         font-weight: bold;
     }
+    /* Dynamic Colors */
+    .color-green { color: #2ca02c; }
+    .color-gray { color: #888888; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -318,14 +310,13 @@ col_set1, col_set2, col_set3 = st.columns([1, 1, 2])
 with col_set1:
     mode = st.radio("Input Mode", ["Video Upload", "Live Webcam"])
 with col_set2:
-    threshold = st.slider("Sensitivity", 0.0, 1.0, 0.6)
+    # This slider now controls the UI Color, not the prediction logic itself
+    ui_threshold = st.slider("Success Threshold", 0.0, 1.0, 0.5)
 
 st.markdown("---")
 
 # --- LIVE WEBCAM ---
 if mode == "Live Webcam":
-    # Columns: Left is Video (Small), Right is Stats (Big Text)
-    # Ratio [1, 1] makes video take 50% width, effectively making it smaller
     col_cam, col_stats = st.columns([1, 1])
 
     with col_cam:
@@ -336,7 +327,6 @@ if mode == "Live Webcam":
             processor.device = device
             processor.labels = labels
             processor.preprocessor = preprocessor
-            processor.threshold = threshold
             return processor
 
         ctx = webrtc_streamer(
@@ -351,14 +341,13 @@ if mode == "Live Webcam":
         )
 
     with col_stats:
-        # Placeholders for Big Text
+        # Placeholders
         ph_label_container = st.empty()
         ph_conf_container = st.empty()
-        st.markdown("<br>", unsafe_allow_html=True)  # Spacer
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### Top Predictions")
         ph_chart = st.empty()
 
-    # Queue Loop
     if ctx.state.playing:
         while True:
             try:
@@ -368,18 +357,24 @@ if mode == "Live Webcam":
                     label = result["label"]
                     conf = result["conf"]
 
-                    # Custom HTML for Big Text
+                    # Logic: Determine Color based on UI Slider
+                    if conf > ui_threshold and label != "Waiting...":
+                        color_class = "color-green"
+                    else:
+                        color_class = "color-gray"
+
+                    # Display Big Text
                     ph_label_container.markdown(
                         f"""
                         <div class="big-label">Detected Sign:</div>
-                        <div class="big-pred">{label}</div>
+                        <div class="big-pred {color_class}">{label}</div>
                     """,
                         unsafe_allow_html=True,
                     )
 
                     ph_conf_container.markdown(
                         f"""
-                        <div class="big-conf">Confidence: {conf * 100:.1f}%</div>
+                        <div class="big-conf {color_class}">Confidence: {conf * 100:.1f}%</div>
                     """,
                         unsafe_allow_html=True,
                     )
